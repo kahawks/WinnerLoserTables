@@ -12,11 +12,21 @@ After each step, I will always rename my data frame to "xdata". This way, I can 
 
 xdata <- [whatever you have named the data frame previously] 
 
+In between each step you can look to see that the first several rows of your data look correct by typing:
+
+head(xdata)
 
 ### Preparing the Data
 
 Before converting to .csv, I made the following changes to the original excel sheet: 1) I converted the date column to the format "yyyy-mm-dd" and made sure they were ordered chronologically, 2) I deleted the "observer" column and used the "remove duplicates" function on excel. Then I saved the spreadsheet as a .csv file
 
+### Load the packages you'll need into your R session
+
+```{r, fig.width = 6}
+library(tidyverse)
+library(EloRating)
+library(rmarkdown)
+```
 
 ### Checking the Data
 
@@ -42,7 +52,6 @@ any(is.na(rawdata$avoided))
 any(is.na(rawdata$avoider))
 
 xdata <- rawdata
-head(xdata)
 
 ```
 
@@ -58,7 +67,6 @@ problem_data <- xdata[problem_rows, ]
 head(problem_data)
 cleaned_data <- xdata[!problem_rows, ]
 xdata <- cleaned_data
-head(xdata)
 ```
 
 ### One cannot avoid one's own self 
@@ -70,7 +78,6 @@ Now we need to make sure there are no rows where the Avoider and the Avoided are
 self_avoidance_rows <- xdata$Avoider == xdata$Avoided
 fresh_data <- xdata[!self_avoidance_rows, ]
 xdata <- fresh_data
-head(xdata)
 
 ```
 
@@ -83,8 +90,6 @@ This is going to be how I filter out so only the aggressive avoids are represent
 allowed_values <- c("agg", "agg1", "agg2", "agg3")
 filtered_data <- subset(xdata, Type.of.Avoid %in% allowed_values)
 xdata <- filtered_data
-head(xdata)
-write.csv(xdata, file = "~/Desktop/new_sheet.csv", row.names = FALSE)
 ```
 
 ### Which dates?
@@ -121,6 +126,17 @@ cleaned_data <- xdata %>%
   filter(!(Avoided %in% inconsistent_avoided$Avoided) & !(Avoider %in% inconsistent_avoider$Avoider))
 xdata <- cleaned_data
 head(xdata)
+
+```
+
+
+### Save your data
+
+If you want to save your cleaned data as a new sheet:
+
+```{r, fig.width = 6}
+write.csv(xdata, file = "~/Desktop/new_sheet.csv", row.names = FALSE)
+
 ```
 
 ## Elo Ratings
@@ -144,17 +160,6 @@ EloRating::extract_elo(res)
 
 ```
 
-### Make a graph
-
-This function shows how the Elo ratings change over time. It is not designed to show too many ids at once, so here we just focus on the top ten. 
-
-```{r, fig.width = 6}
-final_elo_ratings <- EloRating::extract_elo(res)
-sorted_ids <- names(sort(final_elo_ratings, decreasing = TRUE))[1:10]
-EloRating::eloplot(eloobject = res, ids = sorted_ids, from = "2018-03-01", to = "2018-06-15")
-
-```
-
 ### Extract Elo ratings for excel
 
 This allows me to save the ratings as a .csv file onto my desktop. I can open the .csv into excel and continue my analysis from there!
@@ -168,6 +173,17 @@ head(elo_data)
 write.csv(elo_data, file = "~/Desktop/elo_results.csv", row.names = FALSE)
 ```
 
+
+### Make a graph
+
+This function shows how the Elo ratings change over time. It is not designed to show too many ids at once, so here we just focus on the top ten. 
+
+```{r, fig.width = 6}
+final_elo_ratings <- EloRating::extract_elo(res)
+sorted_ids <- names(sort(final_elo_ratings, decreasing = TRUE))[1:10]
+EloRating::eloplot(eloobject = res, ids = sorted_ids, from = "2018-03-01", to = "2018-06-15")
+
+```
 
 ## Another Example
 

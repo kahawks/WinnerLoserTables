@@ -1,0 +1,200 @@
+---
+title: "How to Calculate Elo Ratings using Avoids Data"
+author: "Kale Hawks"
+output:
+  html_document: default
+  word_document: default
+---
+## Setting Up
+
+Our baboon project keeps records of avoids data. These excel files can be easily converted into .csv files that are easy to work with in R.
+After each step, I will always rename my data frame to "xdata". This way, I can do the steps out of order, and not need to worry about what the data frame is named when I begin a chunk of code. Do this by typing:
+
+xdata <- [whatever you have named the data frame previously] 
+
+
+### Preparing the Data
+
+Before converting to .csv, I made the following changes to the original excel sheet: 1) I converted the date column to the format "yyyy-mm-dd" and made sure they were ordered chronologically, 2) I deleted the "observer" column and used the "remove duplicates" function on excel. Then I saved the spreadsheet as a .csv file
+
+
+### Checking the Data
+
+I need to upload my data and then have R read it.
+My data are stored in my github repository, which allows R to read the .csv from a url. If you would like to store your file locally, use the command: 
+
+rawdata <- read.csv(file.choose(new=FALSE),stringsAsFactors = FALSE)
+
+and then select the file from your computer. 
+
+Then I check my data using the following. Make sure to match the format of the columns exactly, with the awareness that R is case sensitive. 
+
+
+```{r, fig.width = 6}
+url <- "https://raw.githubusercontent.com/kahawks/WinnerLoserTables/main/2018-2019%20NMU%20avoids%20all.csv"
+rawdata <- read.csv(url, stringsAsFactors = FALSE)
+rawdata$Date <- as.Date(rawdata$Date, format = "%Y-%m-%d")
+rawdata <- rawdata[order(rawdata$Date), ]
+rawdata <- rawdata[!is.na(rawdata$Date), ]
+
+rawdata <- na.omit(rawdata)
+any(is.na(rawdata$avoided))
+any(is.na(rawdata$avoider))
+
+xdata <- rawdata
+head(xdata)
+
+```
+
+### Only one baboon ID allowed as Avoider and as Avoided
+
+Make sure to only include ids that are fewer than 4 characters. This allows for an id like KL2 but not a polyadic id like ALAT2 or HD, HS.
+
+
+```{r, fig.width = 6}
+max_characters <- 3
+problem_rows <- apply(xdata[, c("Avoider", "Avoided")], 1, function(row) any(nchar(row) > max_characters))
+problem_data <- xdata[problem_rows, ]
+head(problem_data)
+cleaned_data <- xdata[!problem_rows, ]
+xdata <- cleaned_data
+head(xdata)
+```
+
+### One cannot avoid one's own self 
+
+Now we need to make sure there are no rows where the Avoider and the Avoided are the same id, since the elo rating package will completely refuse to do anything if this ever happens. I export the cleaned data frame as a .csv on my desktop so that I can carefully inspect it before I continue.
+
+
+```{r, fig.width = 6}
+self_avoidance_rows <- xdata$Avoider == xdata$Avoided
+fresh_data <- xdata[!self_avoidance_rows, ]
+xdata <- fresh_data
+head(xdata)
+
+```
+
+### Only certain types of avoids should count
+
+This is going to be how I filter out so only the aggressive avoids are represented. I check to make sure it looks good, and then I set my new filtered data set as "xdata". 
+
+
+```{r, fig.width = 6}
+allowed_values <- c("agg", "agg1", "agg2", "agg3")
+filtered_data <- subset(xdata, Type.of.Avoid %in% allowed_values)
+xdata <- filtered_data
+head(xdata)
+write.csv(xdata, file = "~/Desktop/new_sheet.csv", row.names = FALSE)
+```
+
+### Which dates?
+
+Finally, there is too much data in this sheet to run all at once and get meaningful results. I am going to designate a start date and end date before I do the Elo Ratings analysis.
+
+```{r, fig.width = 6}
+start_date <- as.Date("2018-01-01")
+end_date <- as.Date("2018-06-30")
+shorter_data <- subset(xdata, Date >= start_date & Date <= end_date)
+xdata <- shorter_data
+
+```
+
+Now I have a manageable chunk of data and I'm ready to move on with my analyses.
+
+## Elo Ratings
+
+### Sequence Check
+First I need to type " library(EloRating) " to make sure that the package is accessed during my R session. Then I do the following:
+
+```{r, fig.width = 6}
+EloRating::seqcheck(winner = xdata$Avoided, loser = xdata$Avoider, Date = xdata$Date, draw = NULL, presence = NULL)
+
+```
+
+### Results
+
+If everything goes as planned, then I can proceed to get the results.
+
+
+```{r, fig.width = 6}
+res <- EloRating::elo.seq(winner = xdata$Avoided, loser = xdata$Avoider, Date = xdata$Date, draw = NULL, presence = NULL, startvalue = 1000, k = 100, normprob = TRUE, init = "average", intensity = NULL, iterate = 0, runcheck = TRUE, progressbar = FALSE)
+EloRating::extract_elo(res)
+
+```
+
+### Make a graph
+
+This function shows how the Elo ratings change over time. It is not designed to show too many ids at once, so here we just focus on the top ten. 
+
+```{r, fig.width = 6}
+final_elo_ratings <- EloRating::extract_elo(res)
+sorted_ids <- names(sort(final_elo_ratings, decreasing = TRUE))[1:10]
+EloRating::eloplot(eloobject = res, ids = sorted_ids, from = "2018-03-01", to = "2018-06-15")
+
+```
+
+### Extract Elo ratings for excel
+
+This allows me to save the ratings as a .csv file onto my desktop. I can open the .csv into excel and continue my analysis from there!
+
+```{r, fig.width = 6}
+res <- EloRating::elo.seq(winner = xdata$Avoided, loser = xdata$Avoider, Date = xdata$Date, draw = NULL, presence = NULL, startvalue = 1000, k = 100, normprob = TRUE, init = "average", intensity = NULL, iterate = 0, runcheck = TRUE, progressbar = FALSE)
+elo_ratings <- EloRating::extract_elo(res)
+ids <- names(elo_ratings)
+elo_data <- data.frame(ID = ids, EloRating = unlist(elo_ratings))
+head(elo_data)
+write.csv(elo_data, file = "~/Desktop/elo_results.csv", row.names = FALSE)
+```
+
+
+## Another Example
+
+Here is another example. In this case I started out with a version of the avoids sheet where I had already filtered out the females and juveniles, so that the file I began with contained only Adult and Sub-Adult males. Notice that in my code, I had to make sure that my labels were lowercase to agree with the lowercase column labels "avoider" and "avoided" in my data. I do not remember why it was different.
+
+```{r, fig.width = 6}
+url <- "https://raw.githubusercontent.com/kahawks/WinnerLoserTables/main/male%20aggression%20avoids%20jan-jun%202018.csv"
+rawdata <- read.csv(url, stringsAsFactors = FALSE)
+
+rawdata$Date <- as.Date(rawdata$Date, format = "%Y-%m-%d")
+rawdata <- rawdata[order(rawdata$Date), ]
+rawdata <- rawdata[!is.na(rawdata$Date), ]
+
+rawdata <- na.omit(rawdata)
+any(is.na(rawdata$avoided))
+any(is.na(rawdata$avoider))
+head(rawdata)
+
+xdata <- rawdata
+EloRating::seqcheck(winner = xdata$avoided, loser = xdata$avoider, Date = xdata$Date, draw = NULL, presence = NULL)
+res <- EloRating::elo.seq(winner = xdata$avoided, loser = xdata$avoider, Date = xdata$Date, draw = NULL, presence = NULL, startvalue = 1000, k = 100, normprob = TRUE, init = "average", intensity = NULL, iterate = 0, runcheck = TRUE, progressbar = FALSE)
+EloRating::extract_elo(res)
+ids <- names(elo_ratings)
+elo_data <- data.frame(ID = ids, EloRating = unlist(elo_ratings))
+head(elo_data)
+```
+
+### Make a graph
+
+First you can see how the ratings change during the first three months of data collection. The system has each id beginning with the same starting score of 1000 and things change drastically.
+
+```{r, fig.width = 6}
+final_elo_ratings <- EloRating::extract_elo(res)
+sorted_ids <- names(sort(final_elo_ratings, decreasing = TRUE))[1:10]
+EloRating::eloplot(eloobject = res, ids = sorted_ids, from = "2018-01-01", to = "2018-03-15")
+
+```
+
+Next we watch as the ratings stabilize over the next three months. Since each baboon is already sorted based on the previous data, things aren't as erratic, though ratings are still dynamic. 
+
+```{r, fig.width = 6}
+final_elo_ratings <- EloRating::extract_elo(res)
+sorted_ids <- names(sort(final_elo_ratings, decreasing = TRUE))[1:10]
+EloRating::eloplot(eloobject = res, ids = sorted_ids, from = "2018-03-15", to = "2018-06-30")
+
+```
+
+### Thoughts
+ 
+The more data the better. That is why I'm so glad I finished writing this code so that the process can be more automated. 
+
+## The End

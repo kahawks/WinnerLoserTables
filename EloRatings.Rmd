@@ -101,6 +101,28 @@ xdata <- shorter_data
 
 Now I have a manageable chunk of data and I'm ready to move on with my analyses.
 
+### One more problem...
+
+Sometimes it throws a fit if there are ids that appear once and only once. You can get rid of these with the following code: 
+
+```{r, fig.width = 6}
+avoided_counts <- xdata %>%
+  group_by(Avoided) %>%
+  summarise(occurrences = n_distinct(Date))
+avoider_counts <- xdata %>%
+  group_by(Avoider) %>%
+  summarise(occurrences = n_distinct(Date))
+inconsistent_avoided <- avoided_counts %>%
+  filter(occurrences < 2)
+
+inconsistent_avoider <- avoider_counts %>%
+  filter(occurrences < 2)
+cleaned_data <- xdata %>%
+  filter(!(Avoided %in% inconsistent_avoided$Avoided) & !(Avoider %in% inconsistent_avoider$Avoider))
+xdata <- cleaned_data
+head(xdata)
+```
+
 ## Elo Ratings
 
 ### Sequence Check

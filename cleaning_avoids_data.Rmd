@@ -1,0 +1,264 @@
+---
+title: "Cleaning the Avoids Data"
+author: "Kale Hawks"
+output:
+  html_document: default
+  word_document: default
+---
+
+Our baboon project keeps records of avoids data. These excel files can be easily converted into .csv files that are easy to work with in R.
+
+After each step, I will always rename my data frame to "xdata". This way, I can do the steps out of order, and not need to worry about what the data frame is named when I begin a chunk of code. Do this by typing:
+
+xdata <- [whatever you have named the data frame previously] 
+
+In between each step you can look to see that the first several rows of your data look correct by typing:
+
+head(xdata)
+
+# Data Cleaning
+
+Before bringing the avoids into R, it's important to double check that all the dates are formatted correctly, since this is the one thing R cannot really help with. After I check that the dates are correct, I switch the date column to the number format "yyyy-mm-dd" and make sure they are ordered chronologically. Then I saved the spreadsheet as a .csv file
+
+### Load the packages you'll need into your R session
+
+You will need:
+
+library(tidyverse)
+
+library(EloRating)
+
+library(rmarkdown)
+
+```{r, load the packages}
+library(tidyverse)
+library(EloRating)
+library(rmarkdown)
+```
+
+### Load the data
+
+I need to upload my data and then have R read it.
+My data are stored in my github repository, which allows R to read the .csv from a url. If you would like to store your file locally, use the command: 
+
+rawdata <- read.csv(file.choose(new=FALSE),stringsAsFactors = FALSE)
+
+and then select the file from your computer. 
+
+Then I check my data using the following, making sure to match the format of the columns exactly, with the awareness that R is case sensitive. Notice that I am deleting an extraneous column that appeared in my .csv ("column1") but isn't serving any purpose. I will leave the rest of the columns intact, for now.
+
+
+```{r, load the data}
+url <- "https://raw.githubusercontent.com/kahawks/WinnerLoserTables/main/NMU_Avoids_Jan2018-Mar2021.csv"
+rawdata <- read.csv(url, stringsAsFactors = FALSE)
+rawdata <- rawdata[, !(colnames(rawdata) == "Column1")]
+rawdata$Date <- as.Date(rawdata$Date, format = "%Y-%m-%d")
+
+rawdata <- rawdata[order(rawdata$Date), ]
+rawdata <- rawdata[!is.na(rawdata$Date), ]
+
+rawdata <- na.omit(rawdata)
+any(is.na(rawdata$Avoided))
+any(is.na(rawdata$Avoider))
+
+xdata <- rawdata
+
+```
+
+### Only one baboon ID allowed as Avoider and as Avoided
+
+Make sure to only include ids that are fewer than 4 characters. This allows for an id like KL2 but not a polyadic id like ALAT2 or HD, HS.
+
+
+```{r, not polyadic}
+max_characters <- 3
+polyadic_rows <- apply(xdata[, c("Avoider", "Avoided")], 1, function(row) any(nchar(row) > max_characters))
+polyadic_data <- xdata[polyadic_rows, ]
+head(polyadic_data)
+write.csv(polyadic_data, file = "~/Desktop/polyadic_data.csv", row.names = FALSE)
+cleaned_data <- xdata[!polyadic_rows, ]
+xdata <- cleaned_data
+```
+
+### One cannot avoid one's own self 
+
+Now we need to make sure there are no rows where the Avoider and the Avoided are the same id, since the elo rating package will completely refuse to do anything if this ever happens. 
+
+```{r, self avoids}
+self_avoidance_rows <- xdata$Avoider == xdata$Avoided
+fresh_data <- xdata[!self_avoidance_rows, ]
+xdata <- fresh_data
+
+```
+
+
+### Check each ID by matching it to the unique IDs and add sex
+
+This is a great way to set up if you want filter the data by sex, and it also checks to make sure the ID is valid. I am grabbing the unique IDs table for Namu, which has each animal's name, id, sex, and birthdate (if born in the troop). I already deleted all the ones who died before 2017, so this table should be up to date as of December 2022 (I do not have more recent births, but for the data I am using right now, that should not matter).
+
+
+```{r, add sex}
+url <- "https://raw.githubusercontent.com/kahawks/WinnerLoserTables/main/unique_ids_from_2017.csv"
+id_sex_dob <- read.csv(url, stringsAsFactors = FALSE)
+
+xdata$Avoider_Sex <- id_sex_dob$Gender[match(xdata$Avoider, id_sex_dob$ID)]
+xdata$Avoided_Sex <- id_sex_dob$Gender[match(xdata$Avoided, id_sex_dob$ID)]
+
+xdata <- xdata %>%
+  select(Date, OBS, Avoider, Avoider_Sex, Infant.ID.Avoider, Type.of.Avoid, Avoided, Avoided_Sex, Infant.ID.Avoided, Notes, Entered.By)
+
+head(xdata)
+
+```
+
+
+### Display rows for IDs that were not assigned a sex 
+
+All of the IDs that are present in the unique ids table have now been assigned a sex. If the sex column is blank at this point, it could be that the ID was not recorded correctly. I want to display all of those "Problematic IDs" so that I can double check them. For now I'll remove them from my cleaned data set and save a fresh .csv file onto my desktop with those rows of data so I can review them later. 
+
+
+```{r, problematic ids}
+
+xdata <- xdata %>%
+     mutate(Problematic_ID = ifelse(is.na(Avoider_Sex) | is.na(Avoided_Sex), "Problematic_ID", ""))
+ 
+problematic_rows <- xdata[xdata$Problematic_ID == "Problematic_ID", ]
+ 
+head(problematic_rows)
+write.csv(problematic_rows, file = "~/Desktop/problematic_ids.csv", row.names = FALSE)
+
+cleaned_data <- xdata %>% filter(Problematic_ID != "Problematic_ID")
+xdata <- cleaned_data
+head(xdata)
+
+```
+
+### Save your data
+
+At this point the avoids data are fresh and clean. If you want to continue to prepare your data for Elo Ratings Analysis, continue to the next section. Otherwise, if you are finished, you can save your cleaned dataset as a new file onto your desktop:
+
+```{r, save}
+write.csv(xdata, file = "~/Desktop/new_sheet.csv", row.names = FALSE)
+
+```
+
+
+# Preparing the data for Elo Ratings
+
+### Only certain types of avoids should count
+
+This is going to be how I filter out so only the aggressive avoids are represented. I check to make sure it looks good, and then I set my new filtered data set as "xdata". 
+
+
+```{r, fig.width = 6}
+allowed_values <- c("agg", "agg1", "agg2", "agg3")
+filtered_data <- subset(xdata, Type.of.Avoid %in% allowed_values)
+xdata <- filtered_data
+```
+
+### Which dates?
+
+Finally, there is too much data in this sheet to run all at once and get meaningful results. I am going to designate a start date and end date before I do the Elo Ratings analysis.
+
+```{r, fig.width = 6}
+start_date <- as.Date("2019-01-01")
+end_date <- as.Date("2019-06-30")
+shorter_data <- subset(xdata, Date >= start_date & Date <= end_date)
+xdata <- shorter_data
+
+```
+
+Now I have a manageable chunk of data and I'm ready to move on with my analyses.
+
+### One more problem...
+
+Sometimes it throws a fit if there are ids that appear once and only once. This shouldn't matter very much unless you are using a very short window of time for your analysis. Try running the analysis without, but if you need to get rid of those "inconsistent avoider/avoided" row, use the following code: 
+
+```{r, fig.width = 6}
+avoided_counts <- xdata %>%
+  group_by(Avoided) %>%
+  summarise(occurrences = n_distinct(Date))
+avoider_counts <- xdata %>%
+  group_by(Avoider) %>%
+  summarise(occurrences = n_distinct(Date))
+inconsistent_avoided <- avoided_counts %>%
+  filter(occurrences < 2)
+
+inconsistent_avoider <- avoider_counts %>%
+  filter(occurrences < 2)
+cleaned_data <- xdata %>%
+  filter(!(Avoided %in% inconsistent_avoided$Avoided) & !(Avoider %in% inconsistent_avoider$Avoider))
+xdata <- cleaned_data
+head(xdata)
+
+```
+
+
+### Save your data
+
+If you want to save your cleaned data as a new sheet:
+
+```{r, fig.width = 6}
+write.csv(xdata, file = "~/Desktop/prepared_data.csv", row.names = FALSE)
+
+```
+
+
+# Elo Ratings
+
+### Sequence Check
+
+First I need to type " library(EloRating) " to make sure that the package is accessed during my R session. Then I do the following:
+
+```{r, fig.width = 6}
+EloRating::seqcheck(winner = xdata$Avoided, loser = xdata$Avoider, Date = xdata$Date, draw = NULL, presence = NULL)
+
+```
+
+### Results
+
+If everything goes as planned, then I can proceed to get the results.
+
+
+```{r, fig.width = 6}
+res <- EloRating::elo.seq(winner = xdata$Avoided, loser = xdata$Avoider, Date = xdata$Date, draw = NULL, presence = NULL, startvalue = 1000, k = 100, normprob = TRUE, init = "average", intensity = NULL, iterate = 0, runcheck = TRUE, progressbar = FALSE)
+EloRating::extract_elo(res)
+
+```
+
+### Extract Elo ratings for excel
+
+This allows me to save the ratings as a .csv file onto my desktop. I can open the .csv into excel and continue my analysis from there!
+
+```{r, fig.width = 6}
+res <- EloRating::elo.seq(winner = xdata$Avoided, loser = xdata$Avoider, Date = xdata$Date, draw = NULL, presence = NULL, startvalue = 1000, k = 100, normprob = TRUE, init = "average", intensity = NULL, iterate = 0, runcheck = TRUE, progressbar = FALSE)
+elo_ratings <- EloRating::extract_elo(res)
+ids <- names(elo_ratings)
+elo_data <- data.frame(ID = ids, EloRating = unlist(elo_ratings))
+head(elo_data)
+```
+
+Don't forget to name your file something you will recognize on your desktop:
+
+```{r, save file}
+write.csv(elo_data, file = "~/Desktop/elo_results.csv", row.names = FALSE)
+```
+
+
+### Make a graph
+
+This function shows how the Elo ratings change over time. It is not designed to show too many ids at once, so here we just focus on the top ten. 
+
+```{r, fig.width = 6}
+final_elo_ratings <- EloRating::extract_elo(res)
+sorted_ids <- names(sort(final_elo_ratings, decreasing = TRUE))[1:10]
+EloRating::eloplot(eloobject = res, ids = sorted_ids, from = "2019-03-01", to = "2019-06-15")
+
+```
+
+
+### Thoughts
+ 
+The more data the better. That is why I'm so glad I finished writing this code so that the process can be more automated. 
+
+## The End

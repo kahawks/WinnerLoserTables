@@ -71,8 +71,8 @@ x_axis <- "age in years"
 
 title <- "Monthly Partners (subject groomer, mothers excluded)"
 
-simple_graph_path <- "/Users/kathleenhawks/Desktop/results/simple_groomee.png"
-combined_graph_path <- "/Users/kathleenhawks/Desktop/results/combined_groomee.png"
+simple_graph_path <- "/Users/kathleenhawks/Desktop/results/simple_groomer.png"
+combined_graph_path <- "/Users/kathleenhawks/Desktop/results/combined_groomer.png"
 
 ID <- model_data$ID
 ```
@@ -139,6 +139,7 @@ large_plot <- scatter_plot +
          hjust = 1, vjust = 1, size = 4, color = "black"
 )
      
+
 print(large_plot)
 
 ```
@@ -200,11 +201,16 @@ print(combined_plot)
 save
 
 ```{r nine}
+
+# Modify the width of the graph
+aspect_ratio <- 1.5  # You can adjust this value to change the width
+
 # Save combined_plot as a PNG file in combined-graph-path
-ggsave(filename = combined_graph_path, plot = combined_plot, width = 8, height = 6, dpi = 300)
+ggsave(filename = combined_graph_path, plot = combined_plot, width = 8 * aspect_ratio, height = 8)
+
 
 # Save large_plot as a PNG file in simple-graph-path
-ggsave(filename = simple_graph_path, plot = large_plot, width = 7, height = 6, dpi = 300)
+ggsave(filename = simple_graph_path, plot = large_plot, width = 8 * aspect_ratio, height = 8)
 
 ```
 

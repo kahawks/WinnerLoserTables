@@ -1,0 +1,149 @@
+---
+title: "Combining Grooming Data with Age and Stage for Analysis"
+author: "Kale Hawks"
+date: "2023-11-06"
+output:
+  word_document: default
+  html_document: default
+---
+## What I'm doing
+
+At this point I've used pivot tables to count the number of my subjects' grooming partners for each month in my data set, first with subject as groomer and then with subject as groomee. Since the groomer and groomee data are in two different files, I'll need to combine them. 
+
+Next I will add a column for age (in years), and a column for stage (1=infant, 2=juvenile, 3=sub-adult, 4=older-sub-adult, 5=adult). To do this I set up a data frame called "subjects table" that includes date of birth and dates of promotion for all the males in my study. Instead of using promotions to sa2 and sa3, I base everything off of the first promotion to SA1, so that males who have been SA for a year get bumped up a category, and then are bumped up again once they've been SA for three years. 
+
+Using the subjects table I can create a merged data frame that has grooming data (both groomer and groomee) for each month as well as the subject's age and stage for that month.
+
+## Prep
+
+Load the packages you'll need into your R session
+
+```{r, one}
+library(tidyverse)
+library(rmarkdown)
+library(readxl)
+library(openxlsx)
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(lme4)
+```
+
+Load the data
+
+```{r two}
+groomer_file_path <- "/Users/kathleenhawks/Desktop/NMU_Grooming_and_Avoids_Data_Raw/grooming/GROOMER_DATA_NO_MOM2018-2023.csv"
+
+# Read the Excel file into a data frame
+groomer_data <- read.csv(groomer_file_path, stringsAsFactors = FALSE)
+groomer_data$MONTH <- as.Date(groomer_data$MONTH, format = "%Y-%m-%d")
+
+groomee_file_path <- "/Users/kathleenhawks/Desktop/NMU_Grooming_and_Avoids_Data_Raw/grooming/GROOMEE_DATA_NO_MOM2018-2023.csv"
+
+# Read the Excel file into a data frame
+groomee_data <- read.csv(groomee_file_path, stringsAsFactors = FALSE)
+groomee_data$MONTH <- as.Date(groomee_data$MONTH, format = "%Y-%m-%d")
+
+```
+
+
+## Combine Groomer and Groomee
+
+Merging the data
+
+```{r three}
+
+# Step 1: Inner join to merge rows with matching values in both data frames
+merged_inner <- inner_join(groomer_data, groomee_data, by = c("MONTH", "ID"))
+
+# Step 2: Append rows from groomer_data that are not in the merged result
+only_groomer <- anti_join(groomer_data, merged_inner, by = c("MONTH", "ID"))
+
+# Step 3: Append rows from groomee_data that are not in the merged result
+only_groomee <- anti_join(groomee_data, merged_inner, by = c("MONTH", "ID"))
+
+# Combine the results
+merged_data <- bind_rows(merged_inner, only_groomer, only_groomee)
+
+```
+
+## Adding "Age" and "Stage" 
+
+Adding DOB and date promoted to juvenile and Sub-Adult.
+
+```{r four}
+url <- "https://raw.githubusercontent.com/kahawks/My_Research/main/subjects_table.csv"
+id_sex_dob <- read.csv(url, stringsAsFactors = FALSE)
+
+merged_data$DOB <- id_sex_dob$SUBJECT_DOB[match(merged_data$ID, id_sex_dob$SUBJECT_ID)]
+
+merged_data$SA_PROMOTION <- id_sex_dob$DATE_PROMOTED_SA[match(merged_data$ID, id_sex_dob$SUBJECT_ID)]
+
+merged_data$JUV_PROMOTION <- id_sex_dob$DATE_PROMOTED_JUV[match(merged_data$ID, id_sex_dob$SUBJECT_ID)]
+  
+merged_data$SA_ONE_YEAR <- id_sex_dob$SA_ONE_YEAR[match(merged_data$ID, id_sex_dob$SUBJECT_ID)]
+
+merged_data$SA_THREE_YEARS <- id_sex_dob$SA_THREE_YEARS[match(merged_data$ID, id_sex_dob$SUBJECT_ID)]
+
+merged_data <- merged_data %>%
+  select(ID, MONTH, DOB, SA_PROMOTION, JUV_PROMOTION, GROOMER_NONKIN, GROOMER_KIN, GROOMER_TOTAL, GROOMEE_NONKIN, GROOMEE_KIN, GROOMEE_TOTAL, SA_ONE_YEAR, SA_THREE_YEARS)
+```
+
+Adding Age
+
+```{r five}
+# Calculate the age in years with decimal precision
+merged_data$Age_in_years <- as.numeric(interval(merged_data$DOB, merged_data$MONTH) / years(1))
+
+merged_data <- merged_data %>%
+  select(ID, MONTH, DOB, Age_in_years, SA_PROMOTION, JUV_PROMOTION, GROOMER_NONKIN, GROOMER_KIN, GROOMER_TOTAL, GROOMEE_NONKIN, GROOMEE_KIN, GROOMEE_TOTAL, SA_ONE_YEAR, SA_THREE_YEARS)
+```
+
+and stage, so that 1 is infant, 2 is juvenile, and 3 is sub-adult.
+
+```{r five point five}
+merged_data <- merged_data %>%
+  mutate(STAGE = ifelse(JUV_PROMOTION < MONTH, 2, 1))
+
+merged_data <- merged_data %>%
+  mutate(STAGE = case_when(
+    !is.na(SA_PROMOTION) & SA_PROMOTION < MONTH & STAGE == 2 ~ 3,
+    TRUE ~ STAGE
+  ))
+
+merged_data <- merged_data %>%
+  select(ID, MONTH, DOB, Age_in_years, SA_PROMOTION, JUV_PROMOTION, SA_ONE_YEAR, SA_THREE_YEARS, STAGE, GROOMER_NONKIN, GROOMER_KIN, GROOMER_TOTAL, GROOMEE_NONKIN, GROOMEE_KIN, GROOMEE_TOTAL)
+
+
+```
+
+More stages, so that those who have been sub-adult for at least one year are 4, and those who have been sub-adult for three years are 5.
+
+```{r five point five}
+
+merged_data <- merged_data %>%
+  mutate(STAGE = case_when(
+    !is.na(SA_ONE_YEAR) & SA_ONE_YEAR < MONTH & STAGE == 3 ~ 4,
+    TRUE ~ STAGE
+  ))
+
+merged_data <- merged_data %>%
+  mutate(STAGE = case_when(
+    !is.na(SA_THREE_YEARS) & SA_THREE_YEARS < MONTH & STAGE == 4 ~ 5,
+    TRUE ~ STAGE
+  ))
+
+merged_data <- merged_data %>%
+  select(ID, MONTH, DOB, Age_in_years, SA_PROMOTION, JUV_PROMOTION, SA_ONE_YEAR, SA_THREE_YEARS, STAGE, GROOMER_NONKIN, GROOMER_KIN, GROOMER_TOTAL, GROOMEE_NONKIN, GROOMEE_KIN, GROOMEE_TOTAL)
+
+
+```
+
+## Save for analysis
+
+Save as excel. I can use this data to run GLMM and make graphs.
+
+```{r six}
+write.xlsx(merged_data, file = "/Users/kathleenhawks/Desktop/GROOMER_GROOMEE_NO-MOMS_2018-2023.xlsx", sheetName = "Sheet1")
+```
+

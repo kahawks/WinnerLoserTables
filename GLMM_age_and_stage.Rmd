@@ -65,20 +65,21 @@ Set up the appropriate variable
 
 # Define the dependent and predictor variable column names as symbols
 
-dependent_variable <- sym("GROOMEE_TOTAL")  
-y_axis <- "monthly grooming partners"
-x_axis <- "age in years"
+dependent_variable <- sym("GROOMEE_KIN")  
+y_axis <- "Monthly grooming partners"
+x_axis <- "Age in years"
 
 predictor_variable <- sym("Age_in_years")
 
 predictor_variable1 <- "STAGE"
 predictor_variable2 <- "Age_in_years"
 
-title <- "Monthly Partners (subject groomee, mothers excluded)"
+title <- "Monthly Kin Partners (subject groomee, mothers excluded)"
+boxplot_title <- "Monthly Kin Partners by Stage (subject groomee, mothers excluded)"
 
-simple_graph_path <- "/Users/kathleenhawks/Desktop/results/simple_groomee-total.png"
-combined_graph_path <- "/Users/kathleenhawks/Desktop/results/combined_groomee-total.png"
-box_plot_path <- "/Users/kathleenhawks/Desktop/results/boxplot_groomee-total.png"
+simple_graph_path <- "/Users/kathleenhawks/Desktop/results/simple_groomee-kin.png"
+combined_graph_path <- "/Users/kathleenhawks/Desktop/results/combined_groomee-kin.png"
+box_plot_path <- "/Users/kathleenhawks/Desktop/results/boxplot_groomee-kin.png"
 
 ID <- model_data$ID
 ```
@@ -123,13 +124,21 @@ summary(glmm_small2)
 ```
 ## Graphs
 ```{r seven}
+# Define the text size
+text_size <- 16  # You can adjust this value
 
 # Create the grouped box and whiskers plot
 boxplot <- ggplot(data = model_data, aes(x = factor(STAGE), y = GROOMER_TOTAL, fill = factor(STAGE))) +
   geom_boxplot() +
   labs(x = "Stage", y = y_axis) +
-  ggtitle("Grooming Partners by Developmental Stage") +
-  scale_fill_discrete(name = "STAGE")
+  ggtitle(boxplot_title) +
+  scale_fill_discrete(name = "STAGE") +
+  theme(axis.text.x = element_text(size = text_size),
+        axis.text.y = element_text(size = text_size),
+        axis.title = element_text(size = text_size),
+        title = element_text(size = text_size),
+        legend.title = element_text(size = text_size),
+        legend.text = element_text(size = text_size))
 
 print(boxplot)
 ```
@@ -159,10 +168,10 @@ scatter_plot <- ggplot(model_data, aes_string(x = predictor_variable, y = depend
     plot.margin = margin(1, 1, 1, 1, "cm"),
     axis.line = element_line(color = "darkgray"),
     panel.border = element_rect(color = "darkgray", fill = NA, linewidth = 1),
-    axis.text.x = element_text(angle = 0, vjust = 0.5, size = 14),  # Increase the size of axis text
-    axis.text.y = element_text(size = 14),  # Increase the size of axis text
-    plot.title = element_text(size = 18),  # Increase the size of the plot title
-    axis.title = element_text(size = 16),  # Increase the size of axis titles
+    axis.text.x = element_text(angle = 0, vjust = 0.5, size = 16),  # Increase the size of axis text
+    axis.text.y = element_text(size = 16),  # Increase the size of axis text
+    plot.title = element_text(size = 20),  # Increase the size of the plot title
+    axis.title = element_text(size = 18),  # Increase the size of axis titles
   ) +
   scale_x_continuous(breaks = seq(2, 13, by = 2), limits = c(2, 13)) +
   scale_y_continuous(breaks = seq(0, max_y_value_margin, by = 5), limits = c(0, NA))   # Set lower limit on y-axis at zero
@@ -172,7 +181,7 @@ equation_text <- paste("Regression Equation: y =", intercept, "+", slope, "x")
 large_plot <- scatter_plot +
      annotate(
          "text", x = 13, y = max_y_value_margin, label = equation_text,
-         hjust = 1, vjust = 1, size = 4, color = "black"
+         hjust = 1, vjust = 1, size = 6, color = "black"
 )
      
 
@@ -217,16 +226,16 @@ combined_plot <- ggplot(model_data, aes(x = !!predictor_variable, y = !!dependen
         plot.margin = margin(1, 1, 1, 1, "cm"),
         axis.line = element_line(color = "darkgray"),
         panel.border = element_rect(color = "darkgray", fill = NA, linewidth = 1),
-        axis.text.x = element_text(angle = 0, vjust = 0.5, size = 14),
-        axis.text.y = element_text(size = 14),
-        plot.title = element_text(size = 18),
-        axis.title = element_text(size = 16)
-    ) +
+    axis.text.x = element_text(angle = 0, vjust = 0.5, size = 16),  # Increase the size of axis text
+    axis.text.y = element_text(size = 16),  # Increase the size of axis text
+    plot.title = element_text(size = 20),  # Increase the size of the plot title
+    axis.title = element_text(size = 18),  # Increase the size of axis titles
+  ) +
     scale_x_continuous(breaks = seq(2, 12, by = 2), limits = c(2, 11.5)) +
     scale_y_continuous(breaks = seq(0, max_y_value_margin, by = 5), limits = c(0, NA)) +
     annotate(
         "text", x = 11, y = max_y_value_margin, label = paste("Regression Equation: y =", intercept_large, "+", slope_large, "x"),
-        hjust = 1, vjust = 1, size = 5, color = "black"
+        hjust = 1, vjust = 1, size = 6, color = "black"
     ) +
     scale_color_manual(values = c("KS" = "purple", "AN2" = "#00CED1", "PF" = "darkorange"))
 
@@ -250,5 +259,6 @@ ggsave(filename = simple_graph_path, plot = large_plot, width = 8 * aspect_ratio
 
 ggsave(filename = box_plot_path, plot = boxplot, width = 8 * aspect_ratio, height = 8)
 ```
+
 
 

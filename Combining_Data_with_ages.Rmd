@@ -101,7 +101,7 @@ merged_data <- merged_data %>%
 
 and stage, so that 1 is infant, 2 is juvenile, and 3 is sub-adult.
 
-```{r five point five}
+```{r six}
 merged_data <- merged_data %>%
   mutate(STAGE = ifelse(JUV_PROMOTION < MONTH, 2, 1))
 
@@ -119,7 +119,7 @@ merged_data <- merged_data %>%
 
 More stages, so that those who have been sub-adult for at least one year are 4, and those who have been sub-adult for three years are 5.
 
-```{r five point five}
+```{r seven}
 
 merged_data <- merged_data %>%
   mutate(STAGE = case_when(
@@ -143,7 +143,7 @@ merged_data <- merged_data %>%
 
 Save as excel. I can use this data to run GLMM and make graphs.
 
-```{r six}
+```{r eight}
 write.xlsx(merged_data, file = "/Users/kathleenhawks/Desktop/GROOMER_GROOMEE_NO-MOMS_2018-2023.xlsx", sheetName = "Sheet1")
 ```
 

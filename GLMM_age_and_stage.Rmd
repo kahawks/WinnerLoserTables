@@ -1,0 +1,254 @@
+---
+title: "GLMM Analyses for 2018-2023"
+author: "Kale Hawks"
+date: "2023-11-05"
+output:
+  word_document: default
+  html_document: default
+---
+
+Here I'm using grooming data from January 2018 to March 2023. I am missing April, June, and December of 2019. Altogether, I have 60 months of data. I have 48 study subjects, some of whom died, disappeared, or emigrated during the five years of my study. For total partners as well as kin partners, the mother is excluded. "Kin" include siblings, grandmother, aunts, uncles, cousins, nieces, and nephews.
+
+I have the additional detail of stages in addition to ages, so that 1=infant, 2=juvenile, 3=sa1, 4 is sub-adults who have been SA for at least a year, and 5 is sub-adults who have been SA for at least three years. Based on this analysis, there is no significant difference between 3 and 4, so I have collapsed 3 and 4 into one category and change 5 to 4. 
+ 
+
+## Set-up
+
+Load the packages.
+
+```{r, one}
+library(tidyverse)
+library(rmarkdown)
+library(readxl)
+library(openxlsx)
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(lme4)
+```
+
+
+LOAD THE DATA 
+
+```{r two}
+merged_data <- read_excel("/Users/kathleenhawks/Desktop/AGE_AND_STAGE_2018-2023.xlsx", sheet = "Sheet1")
+
+```
+
+
+Set up zeros in empty slots.
+
+```{r three}
+model_data <- merged_data
+# Replace missing values with zeros
+
+model_data$GROOMER_TOTAL[is.na(model_data$GROOMER_TOTAL)] <- 0
+
+model_data$GROOMEE_TOTAL[is.na(model_data$GROOMEE_TOTAL)] <- 0
+
+model_data$GROOMER_NONKIN[is.na(model_data$GROOMER_NONKIN)] <- 0
+
+model_data$GROOMEE_NONKIN[is.na(model_data$GROOMEE_NONKIN)] <- 0
+
+model_data$GROOMER_KIN[is.na(model_data$GROOMER_KIN)] <- 0
+
+model_data$GROOMEE_KIN[is.na(model_data$GROOMEE_KIN)] <- 0
+```
+
+
+## GLMM Analysis
+
+Set up the appropriate variable
+
+
+```{r four}
+
+# Define the dependent and predictor variable column names as symbols
+
+dependent_variable <- sym("GROOMEE_TOTAL")  
+y_axis <- "monthly grooming partners"
+x_axis <- "age in years"
+
+predictor_variable <- sym("Age_in_years")
+
+predictor_variable1 <- "STAGE"
+predictor_variable2 <- "Age_in_years"
+
+title <- "Monthly Partners (subject groomee, mothers excluded)"
+
+simple_graph_path <- "/Users/kathleenhawks/Desktop/results/simple_groomee-total.png"
+combined_graph_path <- "/Users/kathleenhawks/Desktop/results/combined_groomee-total.png"
+box_plot_path <- "/Users/kathleenhawks/Desktop/results/boxplot_groomee-total.png"
+
+ID <- model_data$ID
+```
+
+run the glmm
+
+```{r five}
+formula_large <- as.formula(paste(dependent_variable, "~", predictor_variable1, "+", predictor_variable2, "+ (1 | ID)"))
+
+# Fit a GLMM with the specified formula
+glmm_large <- glmer(formula_large, data = model_data, family = poisson)
+
+formula_small1 <- as.formula(paste(dependent_variable, "~", predictor_variable1, "+ (1 | ID)"))
+
+# Fit a GLMM with the specified formula
+glmm_small1 <- glmer(formula_small1, data = model_data, family = poisson)
+
+formula_small2 <- as.formula(paste(dependent_variable, "~", predictor_variable2, "+ (1 | ID)"))
+
+# Fit a GLMM with the specified formula
+glmm_small2 <- glmer(formula_small2, data = model_data, family = poisson)
+```
+# Results
+
+Here are the results for the GLMM:
+
+### Large model with both predictor variables:
+
+```{r six one}
+summary(glmm_large)
+```
+### Smaller model with only one of the predictor variables:
+
+```{r six two}
+summary(glmm_small1)
+```
+
+### Smaller model with the other predictor variable:
+
+```{r six three}
+summary(glmm_small2)
+```
+## Graphs
+```{r seven}
+
+# Create the grouped box and whiskers plot
+boxplot <- ggplot(data = model_data, aes(x = factor(STAGE), y = GROOMER_TOTAL, fill = factor(STAGE))) +
+  geom_boxplot() +
+  labs(x = "Stage", y = y_axis) +
+  ggtitle("Grooming Partners by Developmental Stage") +
+  scale_fill_discrete(name = "STAGE")
+
+print(boxplot)
+```
+
+```{r seven point five}
+# Calculate the regression equation coefficients
+coefficients <- fixef(glmm_large)
+intercept <- round(coefficients[1], 2)
+slope <- round(coefficients[2], 2)
+
+scatter_formula <- as.formula(paste(dependent_variable, "~", predictor_variable))
+
+# Find the maximum y value in your data
+max_y_value <- max(model_data[[dependent_variable]])
+# Add 1 to the maximum y value
+max_y_value_margin <- max_y_value + 2
+
+# Create the scatter plot with the specified formula
+scatter_plot <- ggplot(model_data, aes_string(x = predictor_variable, y = dependent_variable)) +
+  geom_point() +    # Add scatter points
+  geom_smooth(method = "lm", se = TRUE) +  # Add a linear regression line with confidence intervals
+  labs(x = x_axis, y = y_axis) +  # Label axes
+  ggtitle(title) +  # Title
+  theme(
+    plot.background = element_rect(fill = "white"),
+    panel.background = element_rect(fill = "white"),
+    plot.margin = margin(1, 1, 1, 1, "cm"),
+    axis.line = element_line(color = "darkgray"),
+    panel.border = element_rect(color = "darkgray", fill = NA, linewidth = 1),
+    axis.text.x = element_text(angle = 0, vjust = 0.5, size = 14),  # Increase the size of axis text
+    axis.text.y = element_text(size = 14),  # Increase the size of axis text
+    plot.title = element_text(size = 18),  # Increase the size of the plot title
+    axis.title = element_text(size = 16),  # Increase the size of axis titles
+  ) +
+  scale_x_continuous(breaks = seq(2, 13, by = 2), limits = c(2, 13)) +
+  scale_y_continuous(breaks = seq(0, max_y_value_margin, by = 5), limits = c(0, NA))   # Set lower limit on y-axis at zero
+
+# Add annotation for the regression equation
+equation_text <- paste("Regression Equation: y =", intercept, "+", slope, "x")
+large_plot <- scatter_plot +
+     annotate(
+         "text", x = 13, y = max_y_value_margin, label = equation_text,
+         hjust = 1, vjust = 1, size = 4, color = "black"
+)
+     
+
+print(large_plot)
+
+```
+
+Visualize the data
+
+```{r eight}
+# Calculate the regression equation coefficients for the larger scatterplot
+coefficients_large <- fixef(glmm_large)
+intercept_large <- round(coefficients_large[1], 2)
+slope_large <- round(coefficients_large[2], 2)
+
+# Create a scatterplot with color-coded points for "AN2," "KS," and "PF" and black dots for other individuals
+
+scatter_formula <- as.formula(paste(dependent_variable, "~", predictor_variable))
+
+# Reorder the levels of the "ID" factor variable based on date of birth ("DOB")
+library(forcats)
+
+model_data$ID <- fct_reorder(model_data$ID, model_data$DOB)
+
+# Find the maximum y value in your data
+max_y_value <- max(model_data[[dependent_variable]])
+
+# Add 1 to the maximum y value
+max_y_value_margin <- max_y_value + 2
+
+
+# Create the combined plot with the specified formula
+combined_plot <- ggplot(model_data, aes(x = !!predictor_variable, y = !!dependent_variable, color = ID)) +
+    geom_point(data = filter(model_data, !ID %in% c("KS", "AN2", "PF")), color = "black") +
+    geom_point(data = filter(model_data, ID %in% c("KS", "AN2", "PF")), aes(group = ID)) +
+    geom_smooth(data = filter(model_data, ID %in% c("KS", "AN2", "PF")), method = "lm", se = FALSE, aes(group = ID), linewidth = 1.5) +
+    labs(x = x_axis, y = y_axis) +
+    ggtitle(title) +
+    theme(
+        plot.background = element_rect(fill = "white"),
+        panel.background = element_rect(fill = "white"),
+        plot.margin = margin(1, 1, 1, 1, "cm"),
+        axis.line = element_line(color = "darkgray"),
+        panel.border = element_rect(color = "darkgray", fill = NA, linewidth = 1),
+        axis.text.x = element_text(angle = 0, vjust = 0.5, size = 14),
+        axis.text.y = element_text(size = 14),
+        plot.title = element_text(size = 18),
+        axis.title = element_text(size = 16)
+    ) +
+    scale_x_continuous(breaks = seq(2, 12, by = 2), limits = c(2, 11.5)) +
+    scale_y_continuous(breaks = seq(0, max_y_value_margin, by = 5), limits = c(0, NA)) +
+    annotate(
+        "text", x = 11, y = max_y_value_margin, label = paste("Regression Equation: y =", intercept_large, "+", slope_large, "x"),
+        hjust = 1, vjust = 1, size = 5, color = "black"
+    ) +
+    scale_color_manual(values = c("KS" = "purple", "AN2" = "#00CED1", "PF" = "darkorange"))
+
+# Display the combined plot
+print(combined_plot)
+```
+
+save
+
+```{r nine}
+
+# Modify the width of the graph
+aspect_ratio <- 1.5  # You can adjust this value to change the width
+
+# Save combined_plot as a PNG file in combined-graph-path
+ggsave(filename = combined_graph_path, plot = combined_plot, width = 8 * aspect_ratio, height = 8)
+
+
+# Save large_plot as a PNG file in simple-graph-path
+ggsave(filename = simple_graph_path, plot = large_plot, width = 8 * aspect_ratio, height = 8)
+
+ggsave(filename = box_plot_path, plot = boxplot, width = 8 * aspect_ratio, height = 8)
+```
+
+

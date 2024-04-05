@@ -1,0 +1,415 @@
+---
+title: "Comparison of elo and perc rankings"
+author: "Kale Hawks"
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+---
+
+```{r, load the packages}
+library(tidyverse)
+library(EloRating)
+library(rmarkdown)
+library(Perc)
+library(reshape2)
+library(openxlsx)
+library(readxl)
+```
+
+# Preparing the data for Elo Ratings
+
+Load the avoids data
+
+```{r, load the data}
+demo_url <- "https://raw.githubusercontent.com/AlexMielke1988/ManyAnalysts/main/Data/demographics.csv"
+displace_url <- "https://raw.githubusercontent.com/AlexMielke1988/ManyAnalysts/main/Data/displacements.csv"
+
+
+demographics_df <- read.csv(demo_url, stringsAsFactors = FALSE)
+displace_df <- read.csv(displace_url, stringsAsFactors = FALSE)
+
+#For each dataset, I like to add a column for sex of each individual, to make it easier to sort and analyze later.
+#Add sex for senders and receivers in displacement data
+displace_df$Sender_Sex <- demographics_df$Sex[match(displace_df$Sender, demographics_df$ID)]
+displace_df$Receiver_Sex <- demographics_df$Sex[match(displace_df$Receiver, demographics_df$ID)]
+displace_df <- displace_df %>%
+  select(X, Sender, Sender_Sex, Receiver, Receiver_Sex, Date, Hour, Minute, Focal)
+
+
+# Convert "Date" column to Date format and order chronologically, if not already
+displace_df$Date <- as.Date(displace_df$Date)  
+displace_df <- displace_df[order(displace_df$Date), ]
+xdata <- displace_df
+# Filter out only one sex at a time
+filtered_data <- xdata %>%
+  filter(Sender_Sex == "m", Receiver_Sex == "m")
+data <-filtered_data
+```
+
+# Perc Ratings
+
+Start by converting the edge table into a conflict matrix.
+
+```{r, fig.width = 6}
+# Create a new data frame with percdf_winner and percdf_loser as columns
+perc_df <- data.frame(winner = data$Sender, loser = data$Receiver)
+
+confmatrix <- as.conflictmat(perc_df)
+
+```
+
+# Transitivity
+
+You could also use transitivity to find out information on transitivity, a measure of how consistent or inconsistent the flow of information is through the network as a whole. This procedure looks for the number of triangles (e.g. A→B→C→A) and determines whether or not they are transitive.
+The function transitivity allow estimation for alpha, which is a value used in the conductance procedure to weight the information from the indirect pathways. The higher the transitivity of a network (the higher the alpha), the greater the weight the conductance procedure will give the indirect pathways.
+
+```{r more stuff}
+conftrans <- transitivity(confmatrix)
+conftrans$transitive      # number of transitive triangles
+conftrans$intransitive    # number of intransitive triangles
+conftrans$transitivity    # transitivity
+conftrans$alpha           # alpha
+```
+
+# Dominance Probability
+
+DominanceProbability is a list of 2 elements. The first element, named imputed.conf is the updated conflict matrix which incorporates information from indirect pathways from the original conflict matrix. Comparing the original conflict matrix with the updated conflict matrix will show the information that is gained through the indirect pathways: (NOTE: I HAVE OMITTED THIS CODE CHUNK SINCE IT ONLY SERVED TO CONFUSE ME THOROUGHLY. PLEASE VIEW THE VIGNETTE DOCUMENT)
+
+After transforming your raw data in an R object of conflict matrix class, we will use the function conductance to find all indirect pathways of a particular length (defined by maxLength) and update the conflict matrix. The maximum length of indirect pathways should be decided based on the data. We use a max length of 4 for our dominance rank. This yields the dominance probability matrix which represents the probability the row outranks the column. Values in the matrix are from 0 - 1, with 0.5 being the most uncertain. If a value is less than 0.5, the corresponding row ID is more likely to lose against the corresponding column ID; if a value is greater than 0.5, the corresponding row ID is more likely to win over the corresponding column ID.
+
+Examining information gained through indirect pathways will provide you information to decide what is the appropriate maxLength for your data. You could examine the information gained through indirect pathways by substracting the original conflict matrix from imputed conflict matrix. The information gained could visually examined by generating a corresponding heatmap using the function plot.conf.mat.
+
+## Rank Order
+
+NOTE: THIS IS THE CODE CHUNK THAT TAKES THE LONGEST TO RUN, BUT IT IS THE MOST IMPORTANT. Setting a lower value for kmax will make the code run more quickly, but it will be less accurate. I have assigned the maxlength to 4 to utilize more information from indirect pathways (see transitivity, above)
+
+Simulated rank order is computed using a simulated annealing algorithm by running the function simRankOrder on DominanceProbability$p.hat. The argument num is the number of simulated annealing runs to generate best rank order. The argument kmax tells you how long (perhaps iterations) the simulated annealing function looks around for a local optimum to find the best rank order. By default, kmax = 1000 was used. But it takes a long time to run when using kmax = 1000. The example below uses kmax = 10 just because it runs quickly and it is enough to illustrate the process, however this value is not recommended when processing real data. Here is how to use simRankOrder to find the simulated rank order:
+
+```{r order}
+# maxLength can be adjusted
+DominanceProbability <- conductance(confmatrix, maxLength = 4)
+
+# find simRankOrder
+s.rank <- simRankOrder(DominanceProbability$p.hat, num = 10, kmax = 1000)
+
+# The function s.rank returns a list containing simulated rank order and Costs for each simulated annealing run. The best rank order will be the one with the lowest cost.
+
+# displaying the first 5 rows of the simulated rank order
+s.rank$BestSimulatedRankOrder[1:5, ]
+
+# displaying cost for each simulated annealing run
+s.rank$Costs
+
+# rank orders generated by each simulated annealing run 
+s.rank$AllSimulatedRankOrder
+# After finding the simulated rank order, you can apply the rank order to your dominance probability matrix in order to generate a heatmap with its rows and columns ordered by rank. This heatmap will highlight areas of non-linear dominance rank. A block of individuals with probabilities near 0.5 indicates a subgroup of individuals whose relationships are not clearly defined.
+
+plotConfmat(DominanceProbability$p.hat, ordering = s.rank[[1]]$ID, labels = TRUE)
+
+```
+This next piece displays the rank order based on the above analysis.
+
+```{r extract ranks}
+# Extract the Costs data frame
+costs <- s.rank$Costs
+
+# Extract the AllSimulatedRankOrder data frame
+all_rank_orders <- s.rank$AllSimulatedRankOrder
+
+# Extract the BestSimulatedRankOrder data frame
+best_rank_order <- s.rank$BestSimulatedRankOrder
+print(best_rank_order)
+```
+
+# Dominance Certainty
+
+NOTE: THIS IS WHERE I SAVE THE CONFLICT MATRIX HEAT MAP AS A PNG FILE
+
+Regarding Dominance Certainty
+
+Besides ranking information, the undirected certainty information in dominance relationship is also important. The values in the dominance probability matrix range from 0-1 indicating both the direction of the relationship and the certainty of the relationship. The function valueConverter converts all values to values between 0.5 - 1.0, which, in essence, removes directionality from the relationship leaving a single metric of dominance certainty (0.5 indicates total uncertainty and 1.0 indicates total certainty). For example,
+
+
+```{r certainty}
+plotConfmat(DominanceProbability$p.hat, ordering = s.rank[[1]]$ID, labels = TRUE)
+# Save the plot as a PNG file
+png("males_per_ranks.png", width = 600, height = 500)  # Specify the file name and dimensions
+plot(plotConfmat(DominanceProbability$p.hat, ordering = s.rank[[1]]$ID, labels = TRUE))  # Plot the object
+dev.off()  # Close the PNG device
+# displaying the first 5 rows and columns of the converted matrix
+valueConverter(DominanceProbability$p.hat)[1:5, 1:5]
+
+# When you want to understand dyadic level dominance uncertainty, you could get the information from dyadicLongConverter. For example,
+
+# displaying rank certainty
+
+dyad_df <- dyadicLongConverter(DominanceProbability$p.hat)
+
+
+individual_df <- individualDomProb(DominanceProbability$p.hat)
+
+head(dyad_df)
+```
+
+### Extract data and rankings for excel
+
+Here I use the rank order to calculate percentiles for dominance analysis.
+
+```{r, fig.width = 6}
+Hierarchy_data <-best_rank_order
+# Calculate percentile based on ranking
+Hierarchy_data$Percentile <- (1 - (rank(Hierarchy_data$ranking) - 1) / length(Hierarchy_data$ranking))
+
+merged_data <- left_join(Hierarchy_data, individual_df, by = "ID")
+merged_data$Mean_certainty <- merged_data$Mean
+merged_data <- merged_data %>%
+  select(ID, ranking, Percentile, Mean_certainty)
+```
+
+Don't forget to name your file something you will recognize on your desktop or in your repository:
+
+```{r, save percolations files}
+write.csv(merged_data, file = "males.csv", row.names = FALSE)
+
+write.xlsx(merged_data, file = "males.xlsx", sheetName = "Sheet1")
+
+```
+
+Here is where I extract dyad data for my analysis on dyads (elsewhere)
+
+```{r, organizing dyads}
+ID1_df <- merged_data
+ID2_df <- merged_data
+# rename columns in ID1 and ID2
+ID1_df$ID1_percentile <- ID1_df$Percentile
+ID1_df$ID1 <- ID1_df$ID
+ID1_df$ID1_mean_certainty <- ID1_df$Mean_certainty
+ID1_df <- ID1_df %>%
+  select(ID1, ID1_percentile, ID1_mean_certainty)
+
+ID2_df$ID2_percentile <- ID2_df$Percentile
+ID2_df$ID2 <- ID2_df$ID
+ID2_df$ID2_mean_certainty <- ID2_df$Mean_certainty
+ID2_df <- ID2_df %>%
+  select(ID2, ID2_percentile, ID2_mean_certainty)
+
+# join ID1 ranks and ID2 ranks to dyad dataframe
+all_data <- left_join(dyad_df, ID1_df, by = "ID1")
+complete_data <- left_join(all_data, ID2_df, by = "ID2")
+
+#compute the difference in rank for each dyad
+complete_data <- complete_data %>%
+  mutate(difference = ID1_percentile - ID2_percentile)
+
+write.csv(complete_data, file = "males_dyads.csv", row.names = FALSE)
+
+write.xlsx(complete_data, file = "males_dyads.xlsx", sheetName = "Sheet1")
+```
+
+# Elo Ratings
+
+### Sequence Check
+
+```{r, sequence check}
+EloRating::seqcheck(winner = data$Sender, loser = data$Receiver, Date = data$Date, draw = NULL, presence = NULL)
+
+```
+
+### Results
+
+If everything goes as planned, then I can proceed to get the results.
+
+```{r, Elo ratings results}
+res <- EloRating::elo.seq(winner = data$Sender, loser = data$Receiver, Date = data$Date, draw = NULL, presence = NULL, startvalue = 1000, k = 100, normprob = TRUE, init = "average", intensity = NULL, iterate = 0, runcheck = TRUE, progressbar = FALSE)
+EloRating::extract_elo(res)
+
+```
+
+### Extract Elo ratings for excel
+
+This allows me to save the ratings as a .csv file onto my desktop. I can open the .csv into excel and continue my analysis from there!
+
+```{r, Elo cleaning up data}
+res <- EloRating::elo.seq(winner = data$Sender, loser = data$Receiver, Date = data$Date, draw = NULL, presence = NULL, startvalue = 1000, k = 100, normprob = TRUE, init = "average", intensity = NULL, iterate = 0, runcheck = TRUE, progressbar = FALSE)
+elo_ratings <- EloRating::extract_elo(res)
+ids <- names(elo_ratings)
+elo_data <- data.frame(ID = ids, EloRating = unlist(elo_ratings))
+
+# Add columns for rank number, percentiles, and sex.
+elo_data$rank <- rank(-elo_data$EloRating, ties.method = "min")
+elo_data <- elo_data %>%
+  mutate(Percentile = percent_rank(EloRating))
+elo_data <- elo_data %>%
+  select(ID, EloRating, rank, Percentile)
+elo_data$Elo_rank <- elo_data$Percentile
+head(elo_data)
+```
+
+Don't forget to name your file something you will recognize on your desktop:
+
+```{r, save elo files}
+write.csv(elo_data, file = "males_Elo.csv", row.names = FALSE)
+
+write.xlsx(elo_data, file = "males_Elo.xlxs", sheetName = "Sheet1")
+```
+
+# Compare Elo Ratings to Perc data
+
+Load rank data from previous percolations analysis of the same time period, and run a regression model to compare the similarity of an individual's elo rating to their perc rating for the same time period.
+
+```{r, getting the perc data to compare}
+file_path <- "males.csv"
+Perc_data <- read.csv(file_path, stringsAsFactors = FALSE)
+
+Perc_data$Perc_rank <- Perc_data$Percentile
+
+merged_data <- left_join(elo_data, Perc_data, by = "ID")
+
+merged_data <- merged_data[!is.na(merged_data$Perc_rank),]
+model_data <- merged_data
+
+# Extract the regression model from the scatter plot object
+regression_model <- lm(Perc_rank ~ Elo_rank, data = model_data)
+
+# show the summary of the regression model
+summary(regression_model)
+```
+
+Visualize the comparison
+
+```{r scatterplot}
+# Extract coefficients from the regression model
+intercept <- round(coef(regression_model)[1], 2)
+slope <- round(coef(regression_model)[2], 2)
+# Extract R-squared value
+r_squared <- round(summary(regression_model)$r.squared, 2)
+
+# Create the scatter plot with the specified formula
+scatter_plot <- ggplot(model_data, aes_string(x = model_data$Elo_rank, y = model_data$Perc_rank)) +
+  geom_point() +    # Add scatter points
+  geom_smooth(method = "lm", se = TRUE) +  # Add a linear regression line with confidence intervals
+  labs(x = "Elo Rank", y = "Perc Rank") +  # Label axes
+  ggtitle("Comparison of Elo and Perc Methods") +  # Title
+  theme(
+    plot.background = element_rect(fill = "white"),
+    panel.background = element_rect(fill = "white"),
+    plot.margin = margin(1, 1, 1, 1, "cm"),
+    axis.line = element_line(color = "darkgray"),
+    panel.border = element_rect(color = "darkgray", fill = NA, linewidth = 1),
+    axis.text.x = element_text(angle = 0, vjust = 0.5, size = 16),  # Increase the size of axis text
+    axis.text.y = element_text(size = 16),  # Increase the size of axis text
+    plot.title = element_text(size = 22),  # Increase the size of the plot title
+    axis.title = element_text(size = 20),  # Increase the size of axis titles
+  ) +
+  scale_x_continuous(breaks = seq(0, 1, by = .2), limits = c(0, 1)) +
+  scale_y_continuous(breaks = seq(0, 1, by = .2), limits = c(0, 1)) +  # Set lower limit on y-axis at zero
+
+# Add annotation for the regression equation using the coefficients and R-squared value
+  annotate(
+    "text", x = 1, y = .25, label = paste("y =", intercept, "+", slope, "x", "\n", "R² =", r_squared),
+    hjust = 1, vjust = 1, size = 7, color = "black"
+  )
+
+print(scatter_plot)
+
+ggsave(filename = "results/Elo_Perc_comparison.png", plot = scatter_plot, width = 9, height = 8)
+
+```
+Make a simple residual plot with elo rank on the x axis: the perc values are most divergent from Elo ratings for the lowest ranking individuals, and they agree most with the highest rankings.
+
+```{r residuals analysis}
+residuals <- resid(regression_model)
+
+# Add residuals as a new column in the data frame
+model_data$residuals <- residuals
+
+```
+
+Contrary to my expectations, the residuals appeared to be randomly distributed with respect to rank:
+
+```{r simple residual scatterplot}
+
+# Create the scatter plot with the specified formula
+scatter_plot <- ggplot(model_data, aes_string(x = model_data$Elo_rank, y = model_data$residuals)) +
+  geom_point() +    # Add scatter points
+  geom_smooth(method = "lm", se = TRUE) +  # Add a linear regression line with confidence intervals
+  labs(x = "Elo Rank", y = "Residuals") +  # Label axes
+  ggtitle("Residuals of Elo-Perc Comparison") +  # Title
+  theme(
+    plot.background = element_rect(fill = "white"),
+    panel.background = element_rect(fill = "white"),
+    plot.margin = margin(1, 1, 1, 1, "cm"),
+    axis.line = element_line(color = "darkgray"),
+    panel.border = element_rect(color = "darkgray", fill = NA, linewidth = 1),
+    axis.text.x = element_text(angle = 0, vjust = 0.5, size = 16),  # Increase the size of axis text
+    axis.text.y = element_text(size = 16),  # Increase the size of axis text
+    plot.title = element_text(size = 22),  # Increase the size of the plot title
+    axis.title = element_text(size = 20),  # Increase the size of axis titles
+  ) +
+  scale_x_continuous(breaks = seq(0, 1, by = .1), limits = c(0, 1)) +
+  scale_y_continuous(breaks = seq(-.4, .4, by = .2), limits = c(-.4, .4))   # Set lower limit on y-axis at zero
+
+
+print(scatter_plot)
+
+ggsave(filename = "results/residuals.png", plot = scatter_plot, width = 9, height = 8)
+
+```
+Now, I would like to see if the residuals correlate with rank certainty. This is based on the theory that Elo Ratings assume a stable linear hierarchy, so where the Perc predictions diverge from the Elo Ratings, it would be expected that those individuals are, on average, less certain in their rank. 
+
+```{r residuals squared}
+# Add squared residuals as a new column in the data frame
+squared_residuals <- residuals^2
+model_data$residuals_squared <- squared_residuals
+# Take the square root of all the values in the "residuals_squared" column
+model_data$residuals_squared_sqrt <- sqrt(model_data$residuals_squared)
+
+# Extract the regression model from the scatter plot object
+residuals_regression <- lm(Mean_certainty ~ residuals_squared_sqrt, data = model_data)
+
+# Print the summary of the regression model
+summary(residuals_regression)
+```
+
+Visualize the residual plot
+
+```{r residual scatterplot}
+# Extract coefficients from the regression model
+intercept <- round(coef(residuals_regression)[1], 2)
+slope <- round(coef(residuals_regression)[2], 2)
+# Extract R-squared value
+r_squared <- round(summary(residuals_regression)$r.squared, 2)
+
+# Create the scatter plot with the specified formula
+scatter_plot <- ggplot(model_data, aes_string(x = model_data$Mean_certainty, y = model_data$residuals_squared_sqrt)) +
+  geom_point() +    # Add scatter points
+  geom_smooth(method = "lm", se = TRUE) +  # Add a linear regression line with confidence intervals
+  labs(x = "Mean rank certainty", y = "Residuals (positive)") +  # Label axes
+  ggtitle("Residuals of Elo-Perc Comparison and rank certainty") +  # Title
+  theme(
+    plot.background = element_rect(fill = "white"),
+    panel.background = element_rect(fill = "white"),
+    plot.margin = margin(1, 1, 1, 1, "cm"),
+    axis.line = element_line(color = "darkgray"),
+    panel.border = element_rect(color = "darkgray", fill = NA, linewidth = 1),
+    axis.text.x = element_text(angle = 0, vjust = 0.5, size = 16),  # Increase the size of axis text
+    axis.text.y = element_text(size = 16),  # Increase the size of axis text
+    plot.title = element_text(size = 22),  # Increase the size of the plot title
+    axis.title = element_text(size = 20),  # Increase the size of axis titles
+  ) +
+  scale_x_continuous(breaks = seq(.8, 1, by = .05), limits = c(.8, 1)) +
+  scale_y_continuous(breaks = seq(0, .35, by = .05), limits = c(0, .35)) +  # Set lower limit on y-axis at zero
+
+# Add annotation for the regression equation using the coefficients and R-squared value
+  annotate(
+    "text", x = 1, y = .34, label = paste("y =", intercept, "+", slope, "x", "\n", "R² =", r_squared),
+    hjust = 1, vjust = 1, size = 5, color = "black"
+  )
+
+print(scatter_plot)
+
+ggsave(filename = "results/residuals_certainty_compare.png", plot = scatter_plot, width = 9, height = 8)
+
+```
+# END
